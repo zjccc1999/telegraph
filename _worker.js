@@ -485,35 +485,32 @@ async function generateAdminPage(DATABASE) {
   const mediaHtml = mediaData.map(({ url }) => {
     const fileExtension = url.split('.').pop().toLowerCase();
     const timestamp = url.split('/').pop().split('.')[0];
-    if (fileExtension === 'mp4') {
-      return `
-      <div class="media-container" data-key="${url}" onclick="toggleImageSelection(this)">
-        <div class="media-type">视频</div>
+    const mediaType = fileExtension === 'mp4' ? '视频' : '图片';
+    
+    return `
+    <div class="media-container" data-key="${url}" onclick="toggleImageSelection(this)">
+      <div class="media-type">${mediaType}</div>
+      ${mediaType === '视频' ? `
         <video class="gallery-video" style="width: 100%; height: 100%; object-fit: contain;" data-src="${url}" controls>
-          <source src="${url}" type="video/mp4">
+          <source src="" type="video/mp4">
           您的浏览器不支持视频标签。
         </video>
-        <div class="upload-time">上传时间: ${new Date(parseInt(timestamp)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
-      </div>
-      `;
-    } else {
-      return `
-      <div class="image-container" data-key="${url}" onclick="toggleImageSelection(this)">
-        <img data-src="${url}" alt="Image" class="gallery-image lazy">
-        <div class="upload-time">上传时间: ${new Date(parseInt(timestamp)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
-      </div>
-      `;
-    }
+      ` : `
+        <img class="gallery-image lazy" data-src="${url}" alt="Image">
+      `}
+      <div class="upload-time">上传时间: ${new Date(parseInt(timestamp)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
+    </div>
+    `;
   }).join('');
   
   const html = `
   <!DOCTYPE html>
   <html>
-    <head>
-      <title>图库</title>
-      <link rel="icon" href="https://p1.meituan.net/csc/c195ee91001e783f39f41ffffbbcbd484286.ico" type="image/x-icon">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
+  <head>
+    <title>图库</title>
+    <link rel="icon" href="https://p1.meituan.net/csc/c195ee91001e783f39f41ffffbbcbd484286.ico" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
       body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         background-color: #f4f4f4;
@@ -532,13 +529,25 @@ async function generateAdminPage(DATABASE) {
         padding: 15px 20px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         border-radius: 8px;
+        flex-wrap: wrap;
+      }
+      .header-left {
+        flex: 1;
+      }
+      .header-right {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        flex: 1;
+        justify-content: flex-end;
+        flex-wrap: wrap;
       }
       .gallery {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: 16px;
       }
-      .image-container, .media-container {
+      .media-container {
         position: relative;
         overflow: hidden;
         border-radius: 12px;
@@ -558,7 +567,7 @@ async function generateAdminPage(DATABASE) {
         z-index: 10;
         cursor: pointer;
       }
-      .image-container .upload-time, .media-container .upload-time {
+      .upload-time {
         position: absolute;
         bottom: 10px;
         left: 10px;
@@ -570,7 +579,7 @@ async function generateAdminPage(DATABASE) {
         z-index: 10;
         display: none;
       }
-      .image-container:hover, .media-container:hover {
+      .media-container:hover {
         transform: scale(1.05);
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
       }
@@ -584,7 +593,7 @@ async function generateAdminPage(DATABASE) {
       .gallery-image.loaded {
         opacity: 1;
       }
-      .media-container.selected, .image-container.selected {
+      .media-container.selected {
         border: 2px solid #007bff;
         background-color: rgba(0, 123, 255, 0.1);
       }
@@ -594,7 +603,7 @@ async function generateAdminPage(DATABASE) {
         font-size: 18px;
         color: #555;
       }
-      .delete-button {
+      .delete-button, .copy-button {
         background-color: #ff4d4d;
         color: white;
         border: none;
@@ -604,118 +613,170 @@ async function generateAdminPage(DATABASE) {
         transition: background-color 0.3s;
         width: auto;
       }
-      .delete-button:hover {
+      .delete-button:hover, .copy-button:hover {
         background-color: #ff1a1a;
       }
       .hidden {
         display: none;
       }
-      @media (max-width: 600px) {
+      @media (max-width: 768px) {
+        .header-left, .header-right {
+          flex: 1 1 100%;
+          justify-content: flex-start;
+        }
+        .header-right {
+          margin-top: 10px;
+        }
         .gallery {
           grid-template-columns: repeat(2, 1fr);
         }
-        .header {
-          flex-direction: row;
-          align-items: center;
+      }
+    </style>
+    <script>
+      let selectedCount = 0;
+      const selectedKeys = new Set();
+      let isAllSelected = false;
+  
+      function toggleImageSelection(container) {
+        const key = container.getAttribute('data-key');
+        container.classList.toggle('selected');
+        const uploadTime = container.querySelector('.upload-time');
+        if (container.classList.contains('selected')) {
+          selectedKeys.add(key);
+          selectedCount++;
+          uploadTime.style.display = 'block';
+        } else {
+          selectedKeys.delete(key);
+          selectedCount--;
+          uploadTime.style.display = 'none';
         }
-        .header-right {
-          margin-left: auto;
-        }
-        .footer {
-          font-size: 16px;
-        }
-        .delete-button {
-          width: 100%;
-          margin-top: 10px;
+        updateDeleteButton();
+      }
+  
+      function updateDeleteButton() {
+        const deleteButton = document.getElementById('delete-button');
+        const countDisplay = document.getElementById('selected-count');
+        countDisplay.textContent = selectedCount;
+        const headerRight = document.querySelector('.header-right');
+        if (selectedCount > 0) {
+          headerRight.classList.remove('hidden');
+        } else {
+          headerRight.classList.add('hidden');
         }
       }
-      </style>
-      <script>
-        let selectedCount = 0;
-        const selectedKeys = new Set();
-        function toggleImageSelection(container) {
-          const key = container.getAttribute('data-key');
-          container.classList.toggle('selected');
-          const uploadTime = container.querySelector('.upload-time');
-          if (container.classList.contains('selected')) {
-            selectedKeys.add(key);
-            selectedCount++;
-            uploadTime.style.display = 'block';
-          } else {
-            selectedKeys.delete(key);
-            selectedCount--;
-            uploadTime.style.display = 'none';
-          }
-          updateDeleteButton();
-        }
-        function updateDeleteButton() {
-          const deleteButton = document.getElementById('delete-button');
-          const countDisplay = document.getElementById('selected-count');
-          countDisplay.textContent = selectedCount;
-          const headerRight = document.querySelector('.header-right');
-          if (selectedCount > 0) {
-            headerRight.classList.remove('hidden');
-          } else {
-            headerRight.classList.add('hidden');
-          }
-        }
-        async function deleteSelectedImages() {
-          if (selectedKeys.size === 0) return;
-          const response = await fetch('/delete-images', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(Array.from(selectedKeys))
-          });
-          if (response.ok) {
-            alert('选中的媒体已删除');
-            location.reload();
-          } else {
-            alert('删除失败');
-          }
-        }
-        document.addEventListener('DOMContentLoaded', () => {
-          const images = document.querySelectorAll('.gallery-image[data-src]');
-          const options = {
-            root: null,
-            rootMargin: '0px',
-            threshold: 0.1
-          };
-          const imageObserver = new IntersectionObserver((entries, observer) => {
-            entries.forEach(entry => {
-              if (entry.isIntersecting) {
-                const img = entry.target;
-                img.src = img.dataset.src;
-                img.onload = () => img.classList.add('loaded');
-                observer.unobserve(img);
-              }
-            });
-          }, options);
-          images.forEach(image => {
-            imageObserver.observe(image);
-          });
+  
+      async function deleteSelectedImages() {
+        if (selectedKeys.size === 0) return;
+        const response = await fetch('/delete-images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(Array.from(selectedKeys))
         });
-      </script>
-    </head>
-    <body>
-      <div class="header">
-        <div class="header-left">
-          <span>媒体文件 ${mediaData.length} 个</span>
-          <span>已选中: <span id="selected-count">0</span>个</span>
-        </div>
-        <div class="header-right hidden">          
-          <button id="delete-button" class="delete-button" onclick="deleteSelectedImages()">删除选中</button>
-        </div>
+        if (response.ok) {
+          alert('选中的媒体已删除');
+          location.reload();
+        } else {
+          alert('删除失败');
+        }
+      }
+  
+      function copySelectedUrls() {
+        if (selectedKeys.size === 0) return;
+  
+        const urls = Array.from(selectedKeys).join('\\n');
+        navigator.clipboard.writeText(urls).then(() => {
+          alert('复制成功');
+        }).catch((err) => {
+          alert('复制失败');
+        });
+      }
+  
+      function selectAllImages() {
+        const mediaContainers = document.querySelectorAll('.media-container');
+        if (isAllSelected) {
+          mediaContainers.forEach(container => {
+            container.classList.remove('selected');
+            const key = container.getAttribute('data-key');
+            selectedKeys.delete(key);
+            container.querySelector('.upload-time').style.display = 'none';
+          });
+          selectedCount = 0;
+        } else {
+          mediaContainers.forEach(container => {
+            if (!container.classList.contains('selected')) {
+              container.classList.add('selected');
+              const key = container.getAttribute('data-key');
+              selectedKeys.add(key);
+              selectedCount++;
+              container.querySelector('.upload-time').style.display = 'block';
+            }
+          });
+        }
+        isAllSelected = !isAllSelected;
+        updateDeleteButton();
+      }
+  
+      document.addEventListener('DOMContentLoaded', () => {
+        const mediaContainers = document.querySelectorAll('.media-container[data-key]');
+        const options = {
+          root: null,
+          rootMargin: '0px',
+          threshold: 0.1
+        };
+        
+        const mediaObserver = new IntersectionObserver((entries, observer) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const container = entry.target;
+              const mediaType = container.querySelector('.media-type').textContent;
+  
+              if (mediaType === '视频') {
+                const video = container.querySelector('video');
+                if (video && !video.src) {
+                  video.src = video.dataset.src;
+                  video.load();
+                  video.play();
+                }
+              } else {
+                const img = container.querySelector('img');
+                if (img && !img.src) {
+                  img.src = img.dataset.src;
+                  img.onload = () => img.classList.add('loaded');
+                }
+              }
+              observer.unobserve(container);
+            }
+          });
+        }, options);
+  
+        mediaContainers.forEach(container => {
+          mediaObserver.observe(container);
+        });
+      });
+    </script>    
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-left">
+        <span>媒体文件 ${mediaData.length} 个</span>
+        <span>已选中: <span id="selected-count">0</span>个</span>
       </div>
-      <div class="gallery">
-        ${mediaHtml}
+      <div class="header-right hidden">
+        <button id="copy-button" class="copy-button" onclick="copySelectedUrls()">复制</button>
+        <button id="select-all-button" class="delete-button" onclick="selectAllImages()">全选</button>
+        <button id="delete-button" class="delete-button" onclick="deleteSelectedImages()">删除</button>
       </div>
-      <div class="footer">
-        到底啦
-      </div>
-    </body>
-  </html>
+    </div>
+    <div class="gallery">
+      ${mediaHtml}
+    </div>
+    <div class="footer">
+      到底啦
+    </div>
+  </body>
+  </html>  
   `;
   return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
