@@ -319,7 +319,10 @@ async function handleRootRequest(request, USERNAME, PASSWORD, enableAuth) {
               const item = clipboardData.items[i];
               if (item.kind === 'file') {
                 const pasteFile = item.getAsFile();
-                uploadFile(pasteFile);
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(pasteFile);
+                $('#fileInput')[0].files = dataTransfer.files;
+                $('#fileInput').trigger('change');
                 break;
               }
             }
@@ -619,6 +622,36 @@ async function generateAdminPage(DATABASE) {
       .hidden {
         display: none;
       }
+      .dropdown {
+        position: relative;
+        display: inline-block;
+      }
+      .dropdown-content {
+        display: none;
+        position: absolute;
+        background-color: #f9f9f9;
+        min-width: 160px;
+        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+        z-index: 1;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      }
+      .dropdown-content button {
+        color: black;
+        padding: 12px 16px;
+        text-decoration: none;
+        display: block;
+        background: none;
+        border: none;
+        width: 100%;
+        text-align: left;
+      }
+      .dropdown-content button:hover {
+        background-color: #f1f1f1;
+      }
+      .dropdown:hover .dropdown-content {
+        display: block;
+      }
       @media (max-width: 768px) {
         .header-left, .header-right {
           flex: 1 1 100%;
@@ -633,129 +666,141 @@ async function generateAdminPage(DATABASE) {
       }
     </style>
     <script>
-      let selectedCount = 0;
-      const selectedKeys = new Set();
-      let isAllSelected = false;
+    let selectedCount = 0;
+    const selectedKeys = new Set();
+    let isAllSelected = false;
   
-      function toggleImageSelection(container) {
-        const key = container.getAttribute('data-key');
-        container.classList.toggle('selected');
-        const uploadTime = container.querySelector('.upload-time');
-        if (container.classList.contains('selected')) {
-          selectedKeys.add(key);
-          selectedCount++;
-          uploadTime.style.display = 'block';
-        } else {
-          selectedKeys.delete(key);
-          selectedCount--;
-          uploadTime.style.display = 'none';
-        }
-        updateDeleteButton();
+    function toggleImageSelection(container) {
+      const key = container.getAttribute('data-key');
+      container.classList.toggle('selected');
+      const uploadTime = container.querySelector('.upload-time');
+      if (container.classList.contains('selected')) {
+        selectedKeys.add(key);
+        selectedCount++;
+        uploadTime.style.display = 'block';
+      } else {
+        selectedKeys.delete(key);
+        selectedCount--;
+        uploadTime.style.display = 'none';
       }
+      updateDeleteButton();
+    }
   
-      function updateDeleteButton() {
-        const deleteButton = document.getElementById('delete-button');
-        const countDisplay = document.getElementById('selected-count');
-        countDisplay.textContent = selectedCount;
-        const headerRight = document.querySelector('.header-right');
-        if (selectedCount > 0) {
-          headerRight.classList.remove('hidden');
-        } else {
-          headerRight.classList.add('hidden');
-        }
+    function updateDeleteButton() {
+      const deleteButton = document.getElementById('delete-button');
+      const countDisplay = document.getElementById('selected-count');
+      countDisplay.textContent = selectedCount;
+      const headerRight = document.querySelector('.header-right');
+      if (selectedCount > 0) {
+        headerRight.classList.remove('hidden');
+      } else {
+        headerRight.classList.add('hidden');
       }
+    }
   
-      async function deleteSelectedImages() {
-        if (selectedKeys.size === 0) return;
-        const response = await fetch('/delete-images', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(Array.from(selectedKeys))
-        });
-        if (response.ok) {
-          alert('选中的媒体已删除');
-          location.reload();
-        } else {
-          alert('删除失败');
-        }
-      }
+    async function deleteSelectedImages() {
+      if (selectedKeys.size === 0) return;
+      const confirmation = confirm('你确定要删除选中的媒体文件吗？此操作无法撤销。');
+      if (!confirmation) return;
   
-      function copySelectedUrls() {
-        if (selectedKeys.size === 0) return;
-  
-        const urls = Array.from(selectedKeys).join('\\n');
-        navigator.clipboard.writeText(urls).then(() => {
-          alert('复制成功');
-        }).catch((err) => {
-          alert('复制失败');
-        });
-      }
-  
-      function selectAllImages() {
-        const mediaContainers = document.querySelectorAll('.media-container');
-        if (isAllSelected) {
-          mediaContainers.forEach(container => {
-            container.classList.remove('selected');
-            const key = container.getAttribute('data-key');
-            selectedKeys.delete(key);
-            container.querySelector('.upload-time').style.display = 'none';
-          });
-          selectedCount = 0;
-        } else {
-          mediaContainers.forEach(container => {
-            if (!container.classList.contains('selected')) {
-              container.classList.add('selected');
-              const key = container.getAttribute('data-key');
-              selectedKeys.add(key);
-              selectedCount++;
-              container.querySelector('.upload-time').style.display = 'block';
-            }
-          });
-        }
-        isAllSelected = !isAllSelected;
-        updateDeleteButton();
-      }
-  
-      document.addEventListener('DOMContentLoaded', () => {
-        const mediaContainers = document.querySelectorAll('.media-container[data-key]');
-        const options = {
-          root: null,
-          rootMargin: '0px',
-          threshold: 0.1
-        };
-        
-        const mediaObserver = new IntersectionObserver((entries, observer) => {
-          entries.forEach(entry => {
-            if (entry.isIntersecting) {
-              const container = entry.target;
-              const mediaType = container.querySelector('.media-type').textContent;
-  
-              if (mediaType === '视频') {
-                const video = container.querySelector('video');
-                if (video && !video.src) {
-                  video.src = video.dataset.src;
-                  video.load();
-                  video.play();
-                }
-              } else {
-                const img = container.querySelector('img');
-                if (img && !img.src) {
-                  img.src = img.dataset.src;
-                  img.onload = () => img.classList.add('loaded');
-                }
-              }
-              observer.unobserve(container);
-            }
-          });
-        }, options);
-  
-        mediaContainers.forEach(container => {
-          mediaObserver.observe(container);
-        });
+      const response = await fetch('/delete-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(Array.from(selectedKeys))
       });
-    </script>    
+      if (response.ok) {
+        alert('选中的媒体已删除');
+        location.reload();
+      } else {
+        alert('删除失败');
+      }
+    }
+  
+    function copyFormattedLinks(format) {
+      const urls = Array.from(selectedKeys).map(url => url.trim()).filter(url => url !== '');
+      let formattedLinks = '';
+      switch (format) {
+        case 'url':
+          formattedLinks = urls.join('\\n\\n');
+          break;
+        case 'bbcode':
+          formattedLinks = urls.map(url => '[img]' + url + '[/img]').join('\\n\\n');
+          break;
+        case 'markdown':
+          formattedLinks = urls.map(url => '![image](' + url + ')').join('\\n\\n');
+          break;
+      }
+      navigator.clipboard.writeText(formattedLinks).then(() => {
+        alert('复制成功');
+      }).catch((err) => {
+        alert('复制失败');
+      });
+    }
+  
+    function selectAllImages() {
+      const mediaContainers = document.querySelectorAll('.media-container');
+      if (isAllSelected) {
+        mediaContainers.forEach(container => {
+          container.classList.remove('selected');
+          const key = container.getAttribute('data-key');
+          selectedKeys.delete(key);
+          container.querySelector('.upload-time').style.display = 'none';
+        });
+        selectedCount = 0;
+      } else {
+        mediaContainers.forEach(container => {
+          if (!container.classList.contains('selected')) {
+            container.classList.add('selected');
+            const key = container.getAttribute('data-key');
+            selectedKeys.add(key);
+            selectedCount++;
+            container.querySelector('.upload-time').style.display = 'block';
+          }
+        });
+      }
+      isAllSelected = !isAllSelected;
+      updateDeleteButton();
+    }
+  
+    document.addEventListener('DOMContentLoaded', () => {
+      const mediaContainers = document.querySelectorAll('.media-container[data-key]');
+      const options = {
+        root: null,
+        rootMargin: '0px',
+        threshold: 0.1
+      };
+      
+      const mediaObserver = new IntersectionObserver((entries, observer) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const container = entry.target;
+            const mediaType = container.querySelector('.media-type').textContent;
+  
+            if (mediaType === '视频') {
+              const video = container.querySelector('video');
+              if (video && !video.src) {
+                video.src = video.dataset.src;
+                video.load();
+              }
+            } else {
+              const img = container.querySelector('img');
+              if (img && !img.src) {
+                img.src = img.dataset.src;
+                img.onload = () => img.classList.add('loaded');
+              }
+            }
+            observer.unobserve(container);
+          }
+        });
+      }, options);
+  
+      mediaContainers.forEach(container => {
+        mediaObserver.observe(container);
+      });
+    });
+  </script>
   </head>
   <body>
     <div class="header">
@@ -764,7 +809,14 @@ async function generateAdminPage(DATABASE) {
         <span>已选中: <span id="selected-count">0</span>个</span>
       </div>
       <div class="header-right hidden">
-        <button id="copy-button" class="copy-button" onclick="copySelectedUrls()">复制</button>
+        <div class="dropdown">
+          <button class="copy-button">复制</button>
+          <div class="dropdown-content">
+            <button onclick="copyFormattedLinks('url')">URL</button>
+            <button onclick="copyFormattedLinks('bbcode')">BBCode</button>
+            <button onclick="copyFormattedLinks('markdown')">Markdown</button>
+          </div>
+        </div>
         <button id="select-all-button" class="delete-button" onclick="selectAllImages()">全选</button>
         <button id="delete-button" class="delete-button" onclick="deleteSelectedImages()">删除</button>
       </div>
