@@ -9,6 +9,8 @@ export default {
     const enableAuth = env.ENABLE_AUTH === 'true';
     const TG_BOT_TOKEN = env.TG_BOT_TOKEN;
     const TG_CHAT_ID = env.TG_CHAT_ID;
+    const maxSizeMB = env.MAX_SIZE_MB ? parseInt(env.MAX_SIZE_MB, 10) : 10;
+    const maxSize = maxSizeMB * 1024 * 1024;
 
     switch (pathname) {
       case '/':
@@ -16,7 +18,7 @@ export default {
       case `/${adminPath}`:
         return await handleAdminRequest(DATABASE, request, USERNAME, PASSWORD);
       case '/upload':
-        return request.method === 'POST' ? await handleUploadRequest(request, DATABASE, enableAuth, USERNAME, PASSWORD, domain, TG_BOT_TOKEN, TG_CHAT_ID) : new Response('Method Not Allowed', { status: 405 });
+        return request.method === 'POST' ? await handleUploadRequest(request, DATABASE, enableAuth, USERNAME, PASSWORD, domain, TG_BOT_TOKEN, TG_CHAT_ID, maxSize) : new Response('Method Not Allowed', { status: 405 });
       case '/bing-images':
         return handleBingImagesRequest();
       case '/delete-images':
@@ -295,52 +297,12 @@ async function handleRootRequest(request, USERNAME, PASSWORD, enableAuth) {
           try {
             toastr.info('上传中...', '', { timeOut: 0 });
             const interfaceInfo = {
-              acceptTypes: 'image/*,video/*',
-              maxFileSize: 20 * 1024 * 1024,
               enableCompression: enableCompression
             };
-            const acceptedTypes = interfaceInfo.acceptTypes.split(',');
-            const isAcceptedType = acceptedTypes.some(type => {
-              return type.includes('*') ? file.type.startsWith(type.split('/')[0]) : file.type === type;
-            });
-            if (!isAcceptedType) {
-              toastr.error('仅支持图片或视频格式的文件。');
-              return;
-            }
-            if (file.type.startsWith('video/') || file.type === 'image/gif') {
-              if (file.size > interfaceInfo.maxFileSize) {
-                toastr.error('视频或 GIF 文件必须≤20MB，上传失败。');
-                return;
-              }
-              const formData = new FormData($('#uploadForm')[0]);
-              formData.set('file', file, file.name);
-              const uploadResponse = await fetch('/upload', { method: 'POST', body: formData });
-              const responseData = await handleUploadResponse(uploadResponse);
-              if (responseData.error) {
-                toastr.error(responseData.error);
-              } else {
-                originalImageURLs.push(responseData.data);
-                $('#fileLink').val(originalImageURLs.join('\\n\\n'));
-                $('.form-group').show();
-                adjustTextareaHeight($('#fileLink')[0]);
-                toastr.success('文件上传成功！');
-                saveToLocalCache(responseData.data, file.name, fileHash);
-              }
-              return;
-            }
-            if (interfaceInfo.enableCompression) {
+            if (file.type.startsWith('image/') && file.type !== 'image/gif' && interfaceInfo.enableCompression) {
               toastr.info('正在压缩...', '', { timeOut: 0 });
               const compressedFile = await compressImage(file);
-              if (compressedFile.size > interfaceInfo.maxFileSize) {
-                toastr.error('压缩后文件仍然超过最大限制（20MB），上传失败。');
-                return;
-              }
               file = compressedFile;
-            } else {
-              if (file.size > interfaceInfo.maxFileSize) {
-                toastr.error('文件必须≤20MB');
-                return;
-              }
             }
             const formData = new FormData($('#uploadForm')[0]);
             formData.set('file', file, file.name);
@@ -547,18 +509,23 @@ async function generateAdminPage(DATABASE) {
   const mediaHtml = mediaData.map(({ url }) => {
     const fileExtension = url.split('.').pop().toLowerCase();
     const timestamp = url.split('/').pop().split('.')[0];
-    const mediaType = fileExtension === 'mp4' ? '视频' : '图片';
-    
+    const mediaType = fileExtension;
+    let displayUrl = url;
+    const supportedImageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg'];
+    const supportedVideoExtensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm'];
+    const isSupported = [...supportedImageExtensions, ...supportedVideoExtensions].includes(fileExtension);
+    const backgroundStyle = isSupported ? '' : `style="font-size: 50px; display: flex; justify-content: center; align-items: center;"`;
+    const icon = isSupported ? '' : '📁';
     return `
-    <div class="media-container" data-key="${url}" onclick="toggleImageSelection(this)">
+    <div class="media-container" data-key="${url}" onclick="toggleImageSelection(this)" ${backgroundStyle}>
       <div class="media-type">${mediaType}</div>
-      ${mediaType === '视频' ? `
-        <video class="gallery-video" style="width: 100%; height: 100%; object-fit: contain;" data-src="${url}" controls>
-          <source src="" type="video/mp4">
+      ${supportedVideoExtensions.includes(fileExtension) ? `
+        <video class="gallery-video" preload="none" style="width: 100%; height: 100%; object-fit: contain;" controls>
+          <source data-src="${displayUrl}" type="video/${fileExtension}">
           您的浏览器不支持视频标签。
         </video>
       ` : `
-        <img class="gallery-image lazy" data-src="${url}" alt="Image">
+        ${isSupported ? `<img class="gallery-image lazy" data-src="${displayUrl}" alt="Image">` : icon}
       `}
       <div class="upload-time">上传时间: ${new Date(parseInt(timestamp)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</div>
     </div>
@@ -835,18 +802,15 @@ async function generateAdminPage(DATABASE) {
         entries.forEach(entry => {
           if (entry.isIntersecting) {
             const container = entry.target;
-            const mediaType = container.querySelector('.media-type').textContent;
-  
-            if (mediaType === '视频') {
-              const video = container.querySelector('video');
-              if (video && !video.src) {
-                video.src = video.dataset.src;
-                video.load();
-              }
+            const video = container.querySelector('video');
+            if (video) {
+              const source = video.querySelector('source');
+              video.src = source.getAttribute('data-src');
+              video.load();
             } else {
               const img = container.querySelector('img');
               if (img && !img.src) {
-                img.src = img.dataset.src;
+                img.src = img.getAttribute('data-src');
                 img.onload = () => img.classList.add('loaded');
               }
             }
@@ -902,11 +866,14 @@ async function fetchMediaData(DATABASE) {
   return mediaData.map(({ fileId, url }) => ({ fileId, url }));
 }
 
-async function handleUploadRequest(request, DATABASE, enableAuth, USERNAME, PASSWORD, domain, TG_BOT_TOKEN, TG_CHAT_ID) {
+async function handleUploadRequest(request, DATABASE, enableAuth, USERNAME, PASSWORD, domain, TG_BOT_TOKEN, TG_CHAT_ID, maxSize) {
   try {
     const formData = await request.formData();
     const file = formData.get('file');
     if (!file) throw new Error('缺少文件');
+    if (file.size > maxSize) {
+      return new Response(JSON.stringify({ error: `文件大小超过${maxSize / (1024 * 1024)}MB限制` }), { status: 413, headers: { 'Content-Type': 'application/json' } });
+    }
     if (enableAuth && !authenticate(request, USERNAME, PASSWORD)) {
       return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="Admin"' } });
     }
